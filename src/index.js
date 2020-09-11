@@ -1,14 +1,21 @@
 import { Upload } from 'graphql-upload';
 
 export default function(builder, { uploadFieldDefinitions }) {
-  const findMatchingDefinitions = (def, table, attr) =>
-    def.match({
-      schema: table.namespaceName,
-      table: table.name,
-      column: attr.name,
-      type: attr.type,
-      tags: attr.tags
-    });
+  const relevantUploadType = attr => {
+    const types = uploadFieldDefinitions.filter(
+      ({ name, namespaceName, tag }) =>
+        (name &&
+          namespaceName &&
+          attr.type.name === name &&
+          attr.type.namespaceName === namespaceName) ||
+        attr.tags[tag]
+    );
+    if (types.length === 1) {
+      return types[0];
+    } else if (types.length > 1) {
+      throw new Error('Upload field definitions are ambiguous');
+    }
+  };
 
   builder.hook('build', (_, build) => {
     const {
@@ -33,23 +40,25 @@ export default function(builder, { uploadFieldDefinitions }) {
 
     addType(GraphQLUpload);
 
-    // override the internal type
-    const uploadType = build.pgIntrospectionResultsByKind.type.find(
-      typ => typ.name === 'upload' && typ.namespaceName === 'public'
-    );
-    if (uploadType) {
-      build.pgRegisterGqlTypeByTypeId(
-        uploadType.id,
-        () => build.graphql.GraphQLString
+    // override the internal types
+    uploadFieldDefinitions.forEach(({ name, namespaceName, type }) => {
+      if (!name || !type || !namespaceName) return; // tags or other definitions
+      const theType = build.pgIntrospectionResultsByKind.type.find(
+        typ => typ.name === name && typ.namespaceName === namespaceName
       );
-    }
+      if (theType) {
+        build.pgRegisterGqlTypeByTypeId(theType.id, () =>
+          build.getTypeByName(type)
+        );
+      }
+    });
 
     return _;
   });
 
-  builder.hook('inflection', (inflection, build, context) => {
+  builder.hook('inflection', (inflection, build) => {
     return build.extend(inflection, {
-      // NO ARROW FUNCTIONS HERE
+      // NO ARROW FUNCTIONS HERE (this)
       uploadColumn(attr) {
         return this.column(attr) + 'Upload';
       }
@@ -79,7 +88,9 @@ export default function(builder, { uploadFieldDefinitions }) {
         if (build.pgOmit(attr, action)) return memo;
         if (attr.identity === 'a') return memo;
 
-        if (!attr.tags.upload) return memo;
+        if (!relevantUploadType(attr)) {
+          return memo;
+        }
 
         const fieldName = build.inflection.uploadColumn(attr);
 
@@ -123,6 +134,7 @@ export default function(builder, { uploadFieldDefinitions }) {
     const {
       scope: { isRootMutation, fieldName, pgFieldIntrospection: table }
     } = context;
+
     if (!isRootMutation || !table) {
       return field;
     }
@@ -141,16 +153,12 @@ export default function(builder, { uploadFieldDefinitions }) {
     const uploadResolversByFieldName = introspectionResultsByKind.attribute
       .filter(attr => attr.classId === table.id)
       .reduce((memo, attr) => {
-        const defs = uploadFieldDefinitions.filter(def =>
-          findMatchingDefinitions(def, table, attr)
-        );
-        if (defs.length > 1) {
-          throw new Error('Upload field definitions are ambiguous');
-        }
-        if (defs.length === 1) {
+        // first, try to directly match the types here
+        const typeMatched = relevantUploadType(attr);
+        if (typeMatched) {
           const fieldName = inflection.column(attr);
           const uploadFieldName = inflection.uploadColumn(attr);
-          memo[uploadFieldName] = defs[0].resolve;
+          memo[uploadFieldName] = typeMatched.resolve;
           tags[uploadFieldName] = attr.tags;
           types[uploadFieldName] = attr.type.name;
           originals[uploadFieldName] = fieldName;

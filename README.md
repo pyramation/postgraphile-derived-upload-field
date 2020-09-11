@@ -1,6 +1,6 @@
 # postgraphile-derived-upload-field
 
-Thanks to https://github.com/graphile-contrib/postgraphile-plugin-upload-field for the amazing plugin!
+Thanks to https://github.com/graphile-contrib/postgraphile-plugin-upload-field for the amazing plugin and @benjie at https://www.graphile.org/ for all the support!!
 
 This plugin is a modification of the upload field plugin in that this creates a derived field, which allows you to either upload or patch the original type.
 

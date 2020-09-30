@@ -1,6 +1,6 @@
 {
   "name": "postgraphile-derived-upload-field",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "postgraphile derived upload field",
   "author": "Dan Lynch <pyramation@gmail.com>",
   "homepage": "https://github.com/pyramation/postgraphile-derived-upload-field#readme",
